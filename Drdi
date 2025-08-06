@@ -1,0 +1,430 @@
+import pygame
+import random
+import math
+import os
+from pygame import mixer
+
+# गेम इनिशियलाइजेशन
+pygame.init()
+mixer.init()
+WIDTH, HEIGHT = 1280, 720
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("DRGI - Sinister Fishing Adventure")
+
+# कलर्स और सेटिंग्स
+WATER_COLORS = [(25, 50, 80), (15, 30, 50), (40, 80, 120)]
+SKY_COLORS = [(70, 130, 180), (20, 40, 80), (150, 200, 255)]
+FOG_COLOR = (200, 220, 255, 50)
+DARKNESS_COLOR = (0, 0, 20, 180)
+BOAT_COLOR = (80, 60, 40)
+DOCK_COLOR = (100, 80, 60)
+TEXT_COLOR = (230, 230, 230)
+
+# साउंड लोड करें (डमी साउंड अगर फाइल नहीं मिले)
+try:
+    fishing_sound = mixer.Sound('fishing.wav')
+    catch_sound = mixer.Sound('catch.wav')
+    mystery_sound = mixer.Sound('mystery.wav')
+    boat_sound = mixer.Sound('boat.wav')
+except:
+    # डमी साउंड बनाएं अगर फाइल न मिले
+    fishing_sound = mixer.Sound(buffer=bytearray(100))
+    catch_sound = mixer.Sound(buffer=bytearray(100))
+    mystery_sound = mixer.Sound(buffer=bytearray(100))
+    boat_sound = mixer.Sound(buffer=bytearray(100))
+
+# गेम वेरिएबल्स
+clock = pygame.time.Clock()
+font_small = pygame.font.SysFont('Arial', 18)
+font_medium = pygame.font.SysFont('Arial', 24)
+font_large = pygame.font.SysFont('Arial', 32)
+big_font = pygame.font.SysFont('Arial', 48)
+
+class Boat:
+    def __init__(self):
+        self.x = WIDTH // 3
+        self.y = HEIGHT // 2
+        self.speed = 4
+        self.fish_inventory = []
+        self.mystery_items = []
+        self.fuel = 100
+        self.health = 100
+        self.max_inventory = 20
+        self.fishing = False
+        self.fishing_progress = 0
+        self.boat_sound_channel = mixer.Channel(0)
+        
+    def move(self, keys):
+        if not self.fishing:
+            moving = False
+            if keys[pygame.K_a] and self.x > 30:
+                self.x -= self.speed
+                moving = True
+            if keys[pygame.K_d] and self.x < WIDTH - 30:
+                self.x += self.speed
+                moving = True
+            if keys[pygame.K_w] and self.y > 30:
+                self.y -= self.speed
+                moving = True
+            if keys[pygame.K_s] and self.y < HEIGHT - 30:
+                self.y += self.speed
+                moving = True
+                
+            if moving and not self.boat_sound_channel.get_busy() and self.fuel > 0:
+                self.boat_sound_channel.play(boat_sound, loops=-1)
+                self.fuel = max(0, self.fuel - 0.05)
+            elif not moving:
+                self.boat_sound_channel.stop()
+    
+    def start_fishing(self):
+        if not self.fishing and len(self.fish_inventory) < self.max_inventory:
+            self.fishing = True
+            self.fishing_progress = 0
+            fishing_sound.play()
+    
+    def update_fishing(self):
+        if self.fishing:
+            self.fishing_progress += 0.5
+            if self.fishing_progress >= 100:
+                self.fishing = False
+                if random.random() < 0.7:  # 70% chance to catch fish
+                    fish_type = random.choice(["normal", "rare", "legendary"])
+                    self.fish_inventory.append(Fish(fish_type))
+                    catch_sound.play()
+                return True
+        return False
+            
+    def draw(self, screen):
+        # बोट ड्रॉ
+        pygame.draw.ellipse(screen, BOAT_COLOR, (self.x-25, self.y-15, 50, 30))
+        pygame.draw.rect(screen, BOAT_COLOR, (self.x-30, self.y-5, 60, 10))
+        
+        # फिशिंग प्रोग्रेस
+        if self.fishing:
+            pygame.draw.rect(screen, (100, 100, 100), (self.x-30, self.y-30, 60, 5))
+            pygame.draw.rect(screen, (0, 200, 0), (self.x-30, self.y-30, 60*(self.fishing_progress/100), 5))
+
+class Fish:
+    def __init__(self, fish_type="normal"):
+        self.type = fish_type
+        self.size = random.randint(20, 40)
+        self.value = {
+            "normal": random.randint(10, 30),
+            "rare": random.randint(50, 100),
+            "legendary": random.randint(200, 500)
+        }[self.type]
+        self.weight = random.randint(1, 20)
+        self.name = f"{self.type.capitalize()} Fish ({self.weight}kg)"
+        
+    def draw_icon(self, x, y, size=30):
+        color = {
+            "normal": (150, 150, 255),
+            "rare": (255, 150, 150),
+            "legendary": (255, 255, 100)
+        }[self.type]
+        pygame.draw.ellipse(screen, color, (x, y, size, size//2))
+
+class MysteryItem:
+    def __init__(self):
+        self.types = ["artifact", "treasure", "abyssal", "forbidden"]
+        self.type = random.choice(self.types)
+        self.value = random.randint(100, 1000)
+        self.name = f"{self.type.capitalize()} Item"
+        self.danger_level = random.randint(1, 5)
+        
+    def draw_icon(self, x, y, size=30):
+        color = {
+            "artifact": (200, 150, 50),
+            "treasure": (255, 215, 0),
+            "abyssal": (50, 50, 150),
+            "forbidden": (150, 50, 50)
+        }[self.type]
+        pygame.draw.rect(screen, color, (x, y, size, size))
+
+class Island:
+    def __init__(self, x, y, size):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.dock_pos = (x + random.randint(-50, 50), y + random.randint(-50, 50))
+        
+    def draw(self, screen):
+        pygame.draw.circle(screen, (80, 60, 40), (self.x, self.y), self.size)
+        pygame.draw.circle(screen, (100, 80, 60), (self.x, self.y), self.size-10)
+        # Dock
+        pygame.draw.rect(screen, DOCK_COLOR, (self.dock_pos[0]-20, self.dock_pos[1]-10, 40, 20))
+
+class WeatherSystem:
+    def __init__(self):
+        self.weather = "clear"  # "clear", "rain", "storm", "fog"
+        self.weather_timer = 0
+        self.change_weather()
+        
+    def change_weather(self):
+        self.weather = random.choice(["clear", "clear", "clear", "fog", "rain", "storm"])
+        self.weather_timer = random.randint(300, 1200)  # 5-20 seconds
+        
+    def update(self):
+        self.weather_timer -= 1
+        if self.weather_timer <= 0:
+            self.change_weather()
+            
+    def draw_effects(self, screen):
+        if self.weather == "fog":
+            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            overlay.fill(FOG_COLOR)
+            screen.blit(overlay, (0, 0))
+        elif self.weather == "rain":
+            for _ in range(100):
+                x = random.randint(0, WIDTH)
+                y = random.randint(0, HEIGHT)
+                pygame.draw.line(screen, (200, 200, 255, 100), (x, y), (x-10, y+20), 1)
+        elif self.weather == "storm":
+            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 50))
+            screen.blit(overlay, (0, 0))
+            for _ in range(200):
+                x = random.randint(0, WIDTH)
+                y = random.randint(0, HEIGHT)
+                pygame.draw.line(screen, (255, 255, 255, 150), (x, y), (x-20, y+40), 2)
+            # Lightning occasionally
+            if random.random() < 0.01:
+                screen.fill((255, 255, 255))
+                pygame.display.flip()
+                pygame.time.delay(50)
+
+class DayNightCycle:
+    def __init__(self):
+        self.time = 0  # 0-1440 (minutes in day)
+        self.day_length = 1440  # 24 minutes game time = 1 day
+        self.speed = 1
+        
+    def update(self):
+        self.time = (self.time + self.speed) % self.day_length
+        
+    def get_current_light(self):
+        # 6:00-18:00 is day (360-1080)
+        if 360 < self.time < 1080:
+            return min(1.0, (self.time-360)/120) if self.time < 480 else max(0.0, (1080-self.time)/120) if self.time > 960 else 1.0
+        else:
+            return 0.0
+        
+    def draw(self, screen):
+        light_level = self.get_current_light()
+        if light_level < 1.0:
+            darkness = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            darkness.fill((0, 0, 0, int(200*(1-light_level))))
+            screen.blit(darkness, (0, 0))
+
+# गेम स्टेट्स
+class GameState:
+    def __init__(self):
+        self.state = "main_menu"  # "main_menu", "playing", "paused", "inventory", "selling", "upgrading"
+        self.money = 500
+        self.day = 1
+        self.reputation = 0
+        self.discovered_items = 0
+        self.total_fish_caught = 0
+
+# गेम ऑब्जेक्ट्स बनाएं
+boat = Boat()
+islands = [Island(random.randint(100, WIDTH-100), random.randint(100, HEIGHT-100), random.randint(50, 100)) for _ in range(5)]
+weather = WeatherSystem()
+day_night = DayNightCycle()
+game_state = GameState()
+
+# मेन गेम लूप
+running = True
+while running:
+    # इवेंट हैंडलिंग
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE and game_state.state == "playing":
+                boat.start_fishing()
+            if event.key == pygame.K_ESCAPE:
+                if game_state.state == "playing":
+                    game_state.state = "paused"
+                elif game_state.state == "paused":
+                    game_state.state = "playing"
+            if event.key == pygame.K_i and game_state.state == "playing":
+                game_state.state = "inventory"
+            if event.key == pygame.K_RETURN and game_state.state in ["main_menu", "paused"]:
+                game_state.state = "playing"
+            if event.key == pygame.K_e and game_state.state == "playing":
+                # Check if near any island dock
+                for island in islands:
+                    if math.dist((boat.x, boat.y), island.dock_pos) < 50:
+                        game_state.state = "selling"
+                        break
+    
+    # अपडेट्स
+    keys = pygame.key.get_pressed()
+    
+    if game_state.state == "playing":
+        boat.move(keys)
+        boat.update_fishing()
+        weather.update()
+        day_night.update()
+        
+        # Day progression
+        if day_night.time == 0:
+            game_state.day += 1
+            boat.fuel = min(100, boat.fuel + 30)  # Refuel a bit each day
+            boat.health = min(100, boat.health + 20)
+            
+            # Random events
+            if random.random() < 0.3:
+                weather.weather = "storm"
+                weather.weather_timer = 300
+                boat.health -= random.randint(5, 15)
+    
+    # ड्रॉइंग
+    # स्काई और वॉटर
+    water_color_index = min(2, int(day_night.get_current_light() * 2))
+    pygame.draw.rect(screen, SKY_COLORS[water_color_index], (0, 0, WIDTH, HEIGHT//2))
+    pygame.draw.rect(screen, WATER_COLORS[water_color_index], (0, HEIGHT//2, WIDTH, HEIGHT//2))
+    
+    # आइलैंड्स
+    for island in islands:
+        island.draw(screen)
+    
+    # वेदर इफेक्ट्स
+    weather.draw_effects(screen)
+    
+    # डे/नाइट साइकल
+    day_night.draw(screen)
+    
+    # बोट
+    boat.draw(screen)
+    
+    # UI
+    # टॉप बार
+    pygame.draw.rect(screen, (0, 0, 0, 150), (0, 0, WIDTH, 40))
+    day_text = font_medium.render(f"Day: {game_state.day} | Time: {day_night.time//60:02d}:{day_night.time%60:02d}", True, TEXT_COLOR)
+    money_text = font_medium.render(f"Money: ${game_state.money}", True, TEXT_COLOR)
+    fuel_text = font_medium.render(f"Fuel: {int(boat.fuel)}%", True, TEXT_COLOR)
+    health_text = font_medium.render(f"Health: {int(boat.health)}%", True, TEXT_COLOR)
+    
+    screen.blit(day_text, (10, 10))
+    screen.blit(money_text, (WIDTH//4, 10))
+    screen.blit(fuel_text, (WIDTH//2, 10))
+    screen.blit(health_text, (3*WIDTH//4, 10))
+    
+    # गेम स्टेट्स के अनुसार अतिरिक्त UI
+    if game_state.state == "main_menu":
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 200))
+        screen.blit(overlay, (0, 0))
+        
+        title = big_font.render("DRGI - Fishing Adventure", True, (255, 255, 255))
+        subtitle = font_large.render("Press ENTER to start", True, (200, 200, 200))
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, HEIGHT//3))
+        screen.blit(subtitle, (WIDTH//2 - subtitle.get_width()//2, HEIGHT//2))
+        
+    elif game_state.state == "paused":
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        screen.blit(overlay, (0, 0))
+        
+        paused = big_font.render("PAUSED", True, (255, 255, 255))
+        instruction = font_large.render("Press ESC to resume", True, (200, 200, 200))
+        screen.blit(paused, (WIDTH//2 - paused.get_width()//2, HEIGHT//3))
+        screen.blit(instruction, (WIDTH//2 - instruction.get_width()//2, HEIGHT//2))
+        
+    elif game_state.state == "inventory":
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 200))
+        screen.blit(overlay, (0, 0))
+        
+        inv_surface = pygame.Surface((600, 400))
+        inv_surface.fill((30, 30, 50))
+        screen.blit(inv_surface, (WIDTH//2-300, HEIGHT//2-200))
+        
+        title = font_large.render("Inventory", True, TEXT_COLOR)
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, HEIGHT//2 - 180))
+        
+        # फिश इन्वेंटरी
+        fish_title = font_medium.render("Fish:", True, TEXT_COLOR)
+        screen.blit(fish_title, (WIDTH//2 - 280, HEIGHT//2 - 140))
+        
+        for i, fish in enumerate(boat.fish_inventory[:10]):
+            fish.draw_icon(WIDTH//2 - 250, HEIGHT//2 - 110 + i*30)
+            fish_info = font_small.render(f"{fish.name} - ${fish.value}", True, TEXT_COLOR)
+            screen.blit(fish_info, (WIDTH//2 - 210, HEIGHT//2 - 110 + i*30))
+        
+        # मिस्ट्री आइटम्स
+        items_title = font_medium.render("Mystery Items:", True, TEXT_COLOR)
+        screen.blit(items_title, (WIDTH//2 + 20, HEIGHT//2 - 140))
+        
+        for i, item in enumerate(boat.mystery_items[:10]):
+            item.draw_icon(WIDTH//2 + 50, HEIGHT//2 - 110 + i*30)
+            item_info = font_small.render(f"{item.name} - Danger: {item.danger_level}", True, TEXT_COLOR)
+            screen.blit(item_info, (WIDTH//2 + 90, HEIGHT//2 - 110 + i*30))
+        
+        # इंस्ट्रक्शन
+        instruction = font_medium.render("Press I to close inventory", True, TEXT_COLOR)
+        screen.blit(instruction, (WIDTH//2 - instruction.get_width()//2, HEIGHT//2 + 170))
+        
+    elif game_state.state == "selling":
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 200))
+        screen.blit(overlay, (0, 0))
+        
+        sell_surface = pygame.Surface((600, 400))
+        sell_surface.fill((50, 40, 30))
+        screen.blit(sell_surface, (WIDTH//2-300, HEIGHT//2-200))
+        
+        title = font_large.render("Fishmonger", True, TEXT_COLOR)
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, HEIGHT//2 - 180))
+        
+        # सेल ऑप्शन्स
+        sell_fish = font_medium.render("1. Sell All Fish", True, TEXT_COLOR)
+        sell_items = font_medium.render("2. Sell Mystery Items", True, TEXT_COLOR)
+        repair = font_medium.render("3. Repair Boat ($100)", True, TEXT_COLOR)
+        refuel = font_medium.render("4. Refuel ($50)", True, TEXT_COLOR)
+        leave = font_medium.render("5. Leave", True, TEXT_COLOR)
+        
+        screen.blit(sell_fish, (WIDTH//2 - 250, HEIGHT//2 - 120))
+        screen.blit(sell_items, (WIDTH//2 - 250, HEIGHT//2 - 80))
+        screen.blit(repair, (WIDTH//2 - 250, HEIGHT//2 - 40))
+        screen.blit(refuel, (WIDTH//2 - 250, HEIGHT//2))
+        screen.blit(leave, (WIDTH//2 - 250, HEIGHT//2 + 40))
+        
+        # इंस्ट्रक्शन
+        instruction = font_medium.render("Press number key to select option", True, TEXT_COLOR)
+        screen.blit(instruction, (WIDTH//2 - instruction.get_width()//2, HEIGHT//2 + 170))
+        
+        # की प्रेस हैंडलिंग
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_1 and boat.fish_inventory:
+                # Sell all fish
+                total = sum(fish.value for fish in boat.fish_inventory)
+                game_state.money += total
+                game_state.total_fish_caught += len(boat.fish_inventory)
+                boat.fish_inventory = []
+            elif event.key == pygame.K_2 and boat.mystery_items:
+                # Sell mystery items (with danger chance)
+                for item in boat.mystery_items:
+                    game_state.money += item.value
+                    if item.danger_level > 3 and random.random() < 0.3:
+                        boat.health -= 10
+                game_state.discovered_items += len(boat.mystery_items)
+                boat.mystery_items = []
+            elif event.key == pygame.K_3 and game_state.money >= 100:
+                # Repair
+                game_state.money -= 100
+                boat.health = 100
+            elif event.key == pygame.K_4 and game_state.money >= 50:
+                # Refuel
+                game_state.money -= 50
+                boat.fuel = 100
+            elif event.key == pygame.K_5:
+                # Leave
+                game_state.state = "playing"
+    
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
